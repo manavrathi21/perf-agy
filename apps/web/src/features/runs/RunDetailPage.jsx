@@ -22,12 +22,12 @@ function CollapsibleCard({ title, subtitle, defaultOpen = true, children }) {
         className="flex w-full items-center justify-between text-left"
       >
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
+          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
           {subtitle && (
-            <p className="text-xs text-slate-500 mt-0.5 force-wrap">{subtitle}</p>
+            <p className="text-xs text-gray-700 mt-0.5 force-wrap">{subtitle}</p>
           )}
         </div>
-        <span className="text-xs text-slate-400 shrink-0 ml-2">{open ? '▾' : '▸'}</span>
+        <span className="text-xs text-gray-600 shrink-0 ml-2">{open ? '▾' : '▸'}</span>
       </button>
       {open && <div className="mt-3">{children}</div>}
     </div>
@@ -36,9 +36,9 @@ function CollapsibleCard({ title, subtitle, defaultOpen = true, children }) {
 
 function MetaCell({ label, value }) {
   return (
-    <div className="rounded-md border border-slate-700 bg-slate-800 p-3 min-w-0">
-      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 text-sm text-slate-100 force-wrap font-mono">{value ?? '—'}</div>
+    <div className="rounded-md border border-gray-200 bg-gray-50 p-3 min-w-0">
+      <div className="text-[11px] uppercase tracking-wide text-gray-600">{label}</div>
+      <div className="mt-1 text-sm text-gray-900 force-wrap font-mono">{value ?? '—'}</div>
     </div>
   );
 }

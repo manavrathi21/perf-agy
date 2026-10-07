@@ -222,12 +222,24 @@ function makeInterpolator({
       sources.push(`__resolveDynamicVar(${JSON.stringify(originalName)}, ${dynCacheArg})`);
       return sources;
     }
-    sources.push('__ENV.' + envName);
+    // Phase D.3.1 — D3-2 fix.
+    // When the pre-request script mutates this variable via
+    // pm.environment.set(...), the mutation must beat a backfilled static
+    // environment value (matching Postman semantics). We combine the
+    // __ENV lookup with the pm-state read through __envOrPmSet() so the
+    // runtime helper can resolve precedence per key (manual overrides
+    // still win via the PA_BACKFILLED_ENV_KEYS marker set).
+    if (pmSets.has(originalName)) {
+      sources.push(
+        '__envOrPmSet(' +
+          JSON.stringify(envName) +
+          ', __getPmVar(' + st + ', \'environment\', ' + JSON.stringify(originalName) + '))'
+      );
+    } else {
+      sources.push('__ENV.' + envName);
+    }
     if (pmLocalSets.has(originalName) && reqIdx >= 0) {
       sources.push('__getRequestLocal(' + st + ', ' + reqIdx + ', ' + JSON.stringify(originalName) + ')');
-    }
-    if (pmSets.has(originalName)) {
-      sources.push('__getPmVar(' + st + ', \'environment\', ' + JSON.stringify(originalName) + ')');
     }
     if (pmLocalSets.has(originalName)) {
       sources.push('__pmGet(' + st + ', \'variables\', ' + JSON.stringify(originalName) + ')');
@@ -953,6 +965,39 @@ function __coalesceVar(name, value) {
     return '__UNRESOLVED__' + String(name || '');
   }
   return value;
+}
+
+// Phase D.3.1 — D3-2 fix.
+// Set of env keys the Perf Agent BACKFILLED from the Postman collection /
+// environment file at run start. For these keys a pre-request script's
+// pm.environment.set(...) mutation must beat the backfilled static value
+// (matching Postman's own runtime semantics). Manual UI-entered overrides
+// are NOT in this set, so they still beat pm mutations as before.
+const __PA_BACKFILLED_ENV_KEYS = (function () {
+  const raw = (typeof __ENV !== 'undefined' && __ENV.PA_BACKFILLED_ENV_KEYS) || '';
+  const set = new Set();
+  if (raw) {
+    const parts = String(raw).split(',');
+    for (let i = 0; i < parts.length; i++) {
+      const k = parts[i].trim();
+      if (k) set.add(k);
+    }
+  }
+  return set;
+})();
+
+function __envOrPmSet(envKey, pmValue) {
+  const envV = (typeof __ENV !== 'undefined') ? __ENV[envKey] : undefined;
+  const envHas = typeof envV === 'string' && envV.length > 0;
+  const pmHas = pmValue != null && String(pmValue).length > 0;
+  if (pmHas) {
+    // Pre-request mutation beats a backfilled env value; manual override
+    // (not in backfill set) still wins.
+    if (!envHas) return pmValue;
+    if (__PA_BACKFILLED_ENV_KEYS.has(envKey)) return pmValue;
+    return envV;
+  }
+  return envHas ? envV : '';
 }
 
 function __resolveJsonLiteral(name, value) {

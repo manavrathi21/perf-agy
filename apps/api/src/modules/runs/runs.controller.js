@@ -482,6 +482,18 @@ async function start(req, res, next) {
       chainEnabled,
     });
 
+    // Phase D.3.1 — D3-2 fix.
+    // Advertise which env keys came from the resolver-backfill vs. direct
+    // manual UI entry. The K6 runtime uses this marker to let a
+    // pre-request pm.environment.set(...) beat a backfilled env value
+    // while still letting a user-typed override beat a pm mutation.
+    const backfilledKeyList = backfilledEnvKeys
+      .concat(backfilledSecretKeys)
+      .filter((k) => k && !manualOverrides.includes(k));
+    if (backfilledKeyList.length > 0) {
+      cleanEnv.PA_BACKFILLED_ENV_KEYS = backfilledKeyList.join(',');
+    }
+
     const ctx = await lifecycle.start({
       script,
       env: cleanEnv,
