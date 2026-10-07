@@ -3,7 +3,7 @@
 # Requires: git, docker with compose v2, and a .env in the checkout (never committed).
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/mayank-1913/Performance_Agent.git}"
+REPO_URL="${REPO_URL:-git@github.com:manavrathi21/perf-agy.git}"
 APP_DIR="${APP_DIR:-$HOME/performance-agent}"
 BRANCH="main"
 
