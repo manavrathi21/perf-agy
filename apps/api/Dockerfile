@@ -1,37 +1,71 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.6
+#
+# API image: Node 20 + k6 binary + the two Node workspaces the API needs
+# (@perf/api and @perf/worker-runner). Built from the repo root as context
+# (see docker-compose.yml `context: .`) so the monorepo workspace layout is
+# preserved inside the image.
 
-# k6 binary source. Pin to a known version via --build-arg K6_IMAGE=grafana/k6:<tag>.
-ARG K6_IMAGE=grafana/k6:latest
-ARG NODE_IMAGE=node:20-bookworm-slim
+FROM node:20-bookworm-slim AS base
 
-FROM ${K6_IMAGE} AS k6
+ENV NODE_ENV=production \
+    npm_config_update_notifier=false \
+    npm_config_fund=false \
+    npm_config_audit=false
 
-FROM ${NODE_IMAGE} AS deps
-WORKDIR /app
-# better-sqlite3 falls back to compiling from source if no prebuilt binary matches.
+# System deps:
+#   - python3/make/g++  : native build for better-sqlite3
+#   - ca-certificates   : TLS roots for npm + k6 downloads
+#   - curl/gnupg        : add the Grafana apt repo for k6
+#   - tini              : PID 1 that reaps zombies (k6 is spawned as a child)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg python3 make g++ tini \
+ && mkdir -p /etc/apt/keyrings \
+ && curl -fsSL https://dl.k6.io/key.gpg | gpg --dearmor -o /etc/apt/keyrings/k6-archive-keyring.gpg \
+ && echo "deb [signed-by=/etc/apt/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+      > /etc/apt/sources.list.d/k6.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends k6 \
+ && apt-get purge -y --auto-remove gnupg \
  && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/
-COPY apps/worker-runner/package.json apps/worker-runner/
-COPY apps/web/package.json apps/web/
-RUN npm ci --omit=dev --workspace @perf/api --workspace @perf/worker-runner
 
-FROM ${NODE_IMAGE} AS runtime
-ENV NODE_ENV=production
 WORKDIR /app
 
-COPY --from=k6 /usr/bin/k6 /usr/local/bin/k6
-COPY --from=deps /app/node_modules ./node_modules
-COPY apps/worker-runner ./apps/worker-runner
-COPY apps/api ./apps/api
+# --- install deps ---------------------------------------------------------
+# Copy only manifests first so Docker caches `npm ci` across source edits.
+# We need the root package.json (workspace definition) plus every workspace
+# package.json that @perf/api depends on.
+COPY package.json package-lock.json ./
+COPY apps/api/package.json              apps/api/package.json
+COPY apps/web/package.json              apps/web/package.json
+COPY apps/worker-runner/package.json    apps/worker-runner/package.json
 
-WORKDIR /app/apps/api
-RUN mkdir -p storage logs && chown -R node:node /app/apps/api/storage /app/apps/api/logs
+# `--omit=dev` keeps devDependencies (nodemon, vite, etc.) out of the image.
+# `--workspace` scopes the install to just the API and its workspace dep.
+RUN npm ci \
+      --omit=dev \
+      --workspace apps/api \
+      --workspace apps/worker-runner \
+      --include-workspace-root=false
+
+# --- app source -----------------------------------------------------------
+COPY apps/api            apps/api
+COPY apps/worker-runner  apps/worker-runner
+
+# Storage + logs are docker volumes at runtime; create the dirs so the
+# non-root user has somewhere to write before the volume mounts (and for
+# builds that run without volumes).
+RUN mkdir -p /app/apps/api/storage/uploads /app/apps/api/logs \
+ && chown -R node:node /app
 
 USER node
+
 EXPOSE 4000
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "src/server.js"]
+
+# Healthcheck matches the compose depends_on so `web` only starts once the
+# API is actually serving.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||4000)+'/api/v1/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "apps/api/src/server.js"]
