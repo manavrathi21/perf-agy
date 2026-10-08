@@ -6,6 +6,41 @@ const scriptsStore = require('../scripts/scripts.store');
 const reportsStore = require('../reports/reports.store');
 const collectionsStore = require('../collections/collections.store');
 const environmentsStore = require('../environments/environments.store');
+const { isAdmin, canSee } = require('../auth/ownership');
+
+/**
+ * Load a script by id and enforce visibility. USER can only reach their own
+ * scripts; ADMIN sees everything. Throws 404 so cross-user access doesn't
+ * reveal that an id exists.
+ */
+function getOwnedScript(req, scriptId) {
+  const script = scriptsStore.get(scriptId);
+  if (!script || !canSee(req, script)) {
+    throw ApiError.notFound('Script not found');
+  }
+  return script;
+}
+
+/**
+ * Load a run (live or persisted) and enforce visibility against its backing
+ * script (for live runs) and persisted manifest ownerUserId.
+ */
+function getOwnedRun(req, runId) {
+  const live = lifecycle.get(runId);
+  if (live) {
+    const script = live.scriptId ? scriptsStore.get(live.scriptId) : null;
+    // The run manifest the dashboard displays is derived from the script,
+    // so the script's owner is the authoritative owner for live runs.
+    if (script && !canSee(req, script)) return { kind: 'notFound' };
+    return { kind: 'live', ctx: live, script };
+  }
+  const persisted = reportsStore.get(runId);
+  if (persisted) {
+    if (!canSee(req, persisted)) return { kind: 'notFound' };
+    return { kind: 'persisted', manifest: persisted };
+  }
+  return { kind: 'notFound' };
+}
 const { parse } = require('../../lib/postman/parser');
 const { credentialSourceNames, extractLoginCredentialBindings } = require('../../lib/postman/loginCredentials');
 const { toEnvName } = require('../../lib/k6/generator');
@@ -271,8 +306,7 @@ async function prepare(req, res, next) {
     } = req.body || {};
     if (!scriptId) throw ApiError.badRequest('scriptId is required');
 
-    const script = scriptsStore.get(scriptId);
-    if (!script) throw ApiError.notFound('Script not found');
+    const script = getOwnedScript(req, scriptId);
 
     const cleanEnv = sanitizeManualEnv(env);
     const cleanSecrets = sanitizeManualEnv(secrets);
@@ -370,8 +404,7 @@ async function start(req, res, next) {
     } = req.body || {};
     if (!scriptId) throw ApiError.badRequest('scriptId is required');
 
-    const script = scriptsStore.get(scriptId);
-    if (!script) throw ApiError.notFound('Script not found');
+    const script = getOwnedScript(req, scriptId);
 
     const cleanEnv = sanitizeManualEnv(env);
     const cleanSecrets = sanitizeManualEnv(secrets);
@@ -523,6 +556,8 @@ async function start(req, res, next) {
 /* ------------------------------------------------------------------ */
 function stop(req, res, next) {
   try {
+    const owned = getOwnedRun(req, req.params.runId);
+    if (owned.kind === 'notFound') throw ApiError.notFound('Run not found');
     const stopped = lifecycle.stop(req.params.runId, { reason: 'user' });
     if (!stopped) {
       const ctx = lifecycle.get(req.params.runId);
@@ -541,14 +576,24 @@ function stop(req, res, next) {
 /* ------------------------------------------------------------------ */
 /*  List / get run metadata                                            */
 /* ------------------------------------------------------------------ */
-function list(_req, res) {
+function list(req, res) {
   // Merge the live (active or recently finished, in-memory) runs with the
   // persisted manifests so post-restart history is visible too. Live runs
   // win on duplicates because they may still be updating.
-  const live = lifecycle.list().map(publicRun);
+  const admin = isAdmin(req);
+  const liveAll = lifecycle.list();
+  const live = liveAll
+    .filter((ctx) => {
+      if (admin) return true;
+      const script = ctx.scriptId ? scriptsStore.get(ctx.scriptId) : null;
+      return canSee(req, script);
+    })
+    .map(publicRun);
   const liveIds = new Set(live.map((r) => r.runId));
-  const persisted = reportsStore
-    .list()
+  const persistedAll = admin
+    ? reportsStore.list()
+    : reportsStore.listByOwner(req.user.id);
+  const persisted = persistedAll
     .filter((m) => !liveIds.has(m.runId))
     .map(persistedToPublicRun);
   const merged = [...live, ...persisted].sort((a, b) =>
@@ -558,26 +603,23 @@ function list(_req, res) {
 }
 
 function get(req, res, next) {
-  const ctx = lifecycle.get(req.params.runId);
-  if (ctx) return res.json({ success: true, data: publicRun(ctx) });
-  const persisted = reportsStore.get(req.params.runId);
-  if (persisted) return res.json({ success: true, data: persistedToPublicRun(persisted) });
+  const owned = getOwnedRun(req, req.params.runId);
+  if (owned.kind === 'live') return res.json({ success: true, data: publicRun(owned.ctx) });
+  if (owned.kind === 'persisted') {
+    return res.json({ success: true, data: persistedToPublicRun(owned.manifest) });
+  }
   return next(ApiError.notFound('Run not found'));
 }
 
 function logs(req, res, next) {
-  const ctx = lifecycle.get(req.params.runId);
-  if (ctx) {
+  const owned = getOwnedRun(req, req.params.runId);
+  if (owned.kind === 'live') {
     return res.json({
       success: true,
-      data: { runId: ctx.runId, lines: lifecycle.getLogs(ctx.runId) },
+      data: { runId: owned.ctx.runId, lines: lifecycle.getLogs(owned.ctx.runId) },
     });
   }
-  // Fallback: persisted runs don't have an in-memory ring buffer, but the API
-  // exposes a separate /reports/:id/logs endpoint that reads the on-disk file.
-  // We keep this endpoint behavior but return an empty list so existing UI
-  // calls during a fresh boot don't 404.
-  if (reportsStore.get(req.params.runId)) {
+  if (owned.kind === 'persisted') {
     return res.json({ success: true, data: { runId: req.params.runId, lines: [] } });
   }
   return next(ApiError.notFound('Run not found'));
@@ -588,8 +630,9 @@ function logs(req, res, next) {
 /* ------------------------------------------------------------------ */
 function stream(req, res, next) {
   const { runId } = req.params;
-  const ctx = lifecycle.get(runId);
-  if (!ctx) return next(ApiError.notFound('Run not found'));
+  const owned = getOwnedRun(req, runId);
+  if (owned.kind !== 'live') return next(ApiError.notFound('Run not found'));
+  const ctx = owned.ctx;
 
   res.set({
     'Content-Type': 'text/event-stream',
@@ -716,9 +759,10 @@ function persistedToPublicRun(m) {
 
 async function summary(req, res, next) {
   try {
-    const ctx = lifecycle.get(req.params.runId);
-    const persisted = !ctx ? reportsStore.get(req.params.runId) : null;
-    if (!ctx && !persisted) throw ApiError.notFound('Run not found');
+    const owned = getOwnedRun(req, req.params.runId);
+    if (owned.kind === 'notFound') throw ApiError.notFound('Run not found');
+    const ctx = owned.kind === 'live' ? owned.ctx : null;
+    const persisted = owned.kind === 'persisted' ? owned.manifest : null;
     if (ctx && (ctx.status === 'queued' || ctx.status === 'running')) {
       return res.json({
         success: true,
@@ -760,9 +804,10 @@ async function summary(req, res, next) {
 
 async function metrics(req, res, next) {
   try {
-    const ctx = lifecycle.get(req.params.runId);
-    const persisted = !ctx ? reportsStore.get(req.params.runId) : null;
-    if (!ctx && !persisted) throw ApiError.notFound('Run not found');
+    const owned = getOwnedRun(req, req.params.runId);
+    if (owned.kind === 'notFound') throw ApiError.notFound('Run not found');
+    const ctx = owned.kind === 'live' ? owned.ctx : null;
+    const persisted = owned.kind === 'persisted' ? owned.manifest : null;
     const report = await getReport(req.params.runId);
     if (!report) throw ApiError.notFound('No metrics available for this run');
     // Same additive normalization as above.
@@ -787,8 +832,10 @@ async function metrics(req, res, next) {
 
 async function report(req, res, next) {
   try {
-    const ctx = lifecycle.get(req.params.runId);
-    const persisted = !ctx ? reportsStore.get(req.params.runId) : null;
+    const owned = getOwnedRun(req, req.params.runId);
+    if (owned.kind === 'notFound') throw ApiError.notFound('Run not found');
+    const ctx = owned.kind === 'live' ? owned.ctx : null;
+    const persisted = owned.kind === 'persisted' ? owned.manifest : null;
     const reportPath = ctx?.artifacts?.reportHtmlPath || persisted?.artifacts?.reportHtmlPath;
     if (!reportPath) throw ApiError.notFound('No report file available');
     const wantDownload = String(req.query.download || '') === '1';

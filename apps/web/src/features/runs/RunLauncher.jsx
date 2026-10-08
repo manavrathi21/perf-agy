@@ -203,7 +203,7 @@ export default function RunLauncher({
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Run test</h3>
+          <h3 className="text-sm font-semibold text-ink-900">Run test</h3>
           <p className="mt-1 text-xs text-soft">
             Provide runtime env vars. Manual values you type here are{' '}
             <span className="font-semibold text-amber-700">locked overrides</span> and always
@@ -425,7 +425,7 @@ export default function RunLauncher({
       )}
 
       {error && (
-        <div className="mt-3 rounded-md border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-300">
+        <div className="mt-3 alert-error">
           {error}
         </div>
       )}

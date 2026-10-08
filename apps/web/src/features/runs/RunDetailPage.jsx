@@ -123,7 +123,7 @@ export default function RunDetailPage() {
         </div>
 
         {/* Compact metadata grid */}
-        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
           <MetaCell label="Run ID" value={status?.runId || runId} />
           <MetaCell label="Script ID" value={status?.scriptId} />
           <MetaCell label="Selection" value={status?.selection ? status.selection.mode : '—'} />
@@ -142,20 +142,20 @@ export default function RunDetailPage() {
         </div>
 
         {status?.error && (
-          <div className="mt-3 rounded-md border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-300 force-wrap">
+          <div className="mt-3 alert-error force-wrap">
             {status.error}
           </div>
         )}
         {stopError && (
-          <div className="mt-3 rounded-md border border-rose-800 bg-rose-950/40 p-3 text-sm text-rose-300 force-wrap">
+          <div className="mt-3 alert-error force-wrap">
             {stopError}
           </div>
         )}
-        {error && <div className="mt-3 text-xs text-amber-400">{error}</div>}
+        {error && <div className="alert-warning mt-3 text-xs">{error}</div>}
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-slate-800">
+      <div className="border-b border-soft">
         <div className="flex flex-wrap gap-1">
           {TABS.map((t) => (
             <button
@@ -165,7 +165,7 @@ export default function RunDetailPage() {
               className={[
                 'px-3 py-2 text-sm font-medium transition-colors -mb-px border-b-2',
                 tab === t.id
-                  ? 'border-brand-500 text-brand-200'
+                  ? 'border-brand-500 text-brand-700'
                   : 'border-transparent text-slate-400 hover:text-slate-200',
               ].join(' ')}
             >

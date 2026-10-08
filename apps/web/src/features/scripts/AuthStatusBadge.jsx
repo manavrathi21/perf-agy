@@ -42,9 +42,9 @@ const TONES = {
     code: 'text-amber-900',
   },
   slate: {
-    container: 'bg-slate-50 border-slate-300 text-slate-900',
-    label: 'text-slate-600',
-    code: 'text-slate-700',
+    container: 'bg-gray-50 border-gray-300 text-ink-900',
+    label: 'text-ink-600',
+    code: 'text-ink-700',
   },
 };
 

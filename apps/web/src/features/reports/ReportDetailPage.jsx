@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { reportsApi } from '../../shared/api/reports.api.js';
+import { useAuth } from '../../shared/auth/AuthContext.jsx';
 import RunStatusBadge from '../runs/RunStatusBadge.jsx';
 import { PanelLoader } from '../../shared/components/Loading.jsx';
 
@@ -57,6 +58,8 @@ export default function ReportDetailPage() {
   const [tab, setTab] = useState('report');
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     let mounted = true;
@@ -109,7 +112,7 @@ export default function ReportDetailPage() {
   if (loading) return <div className="card text-sm text-slate-400">Loading report…</div>;
   if (error) {
     return (
-      <div className="card text-sm text-rose-300">
+      <div className="card text-sm text-rose-700">
         {error}{' '}
         <Link to="/reports" className="ml-2 underline">
           Back to reports
@@ -164,24 +167,26 @@ export default function ReportDetailPage() {
             <a className="btn-primary" href={reportsApi.reportDownloadUrl(id)}>
               Download
             </a>
-            <button
-              type="button"
-              className="btn-secondary !bg-rose-600/20 !border-rose-700/60 !text-rose-200 hover:!bg-rose-600/30"
-              onClick={() => setConfirming(true)}
-            >
-              Delete
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-danger-ghost"
+                onClick={() => setConfirming(true)}
+              >
+                Delete
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
           {headline.map((h) => (
             <MetaCell key={h.label} label={h.label} value={String(h.value)} />
           ))}
         </div>
       </div>
 
-      <div className="border-b border-slate-800">
+      <div className="border-b border-soft">
         <div className="flex flex-wrap gap-1">
           {TABS.map((t) => (
             <button
@@ -191,7 +196,7 @@ export default function ReportDetailPage() {
               className={[
                 'px-3 py-2 text-sm font-medium transition-colors -mb-px border-b-2',
                 tab === t.id
-                  ? 'border-brand-500 text-brand-200'
+                  ? 'border-brand-500 text-brand-700'
                   : 'border-transparent text-slate-400 hover:text-slate-200',
               ].join(' ')}
             >
@@ -312,7 +317,7 @@ export default function ReportDetailPage() {
                 Cancel
               </button>
               <button
-                className="btn-primary !bg-rose-600 hover:!bg-rose-500"
+                className="btn-danger"
                 onClick={onDelete}
                 disabled={deleting}
               >
