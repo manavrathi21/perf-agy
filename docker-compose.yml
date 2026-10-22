@@ -27,12 +27,14 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/perf-agent/}
     image: performance-agent-web:local
     container_name: pa-web
     # No host-published port -- TLS termination moved to deploy-gateway's own nginx, the one shared front door
     # for every tool on this VM (one cert, reused across every port/tool). Plain HTTP internally; deploy-gateway
-    # reverse-proxies to this container by name on the shared "gateway" network. Visit it at the SAME port this
-    # used to publish itself (now https, see deploy-gateway's own nginx.conf/README).
+    # reverse-proxies to this container by name on the shared "gateway" network, mounted at /perf-agent (moved
+    # off its own :6367 port -- see deploy-gateway's own nginx.conf/README).
     networks:
       - default   # still needs this to reach `api` by name, unchanged
       - gateway

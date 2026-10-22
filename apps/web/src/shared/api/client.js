@@ -39,9 +39,11 @@ async function request(path, { method = 'GET', body, headers, signal } = {}) {
     if (res.status === 401) {
       // Token missing/expired/invalid -> force a fresh login.
       clearStoredAuth();
-      // Avoid hard reload loops on the login page itself.
-      if (typeof window !== 'undefined' && !/\/login$/.test(window.location.pathname)) {
-        const dest = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+      // Avoid hard reload loops on the login page itself. Prefixed with BASE_URL (see main.jsx) -- a bare
+      // "/login" would send the browser to the domain root, outside the router's own basename.
+      const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+      if (typeof window !== 'undefined' && !new RegExp(`${base}/login$`).test(window.location.pathname)) {
+        const dest = `${base}/login?next=${encodeURIComponent(window.location.pathname)}`;
         window.location.replace(dest);
       }
     }

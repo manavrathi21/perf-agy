@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <!-- %BASE_URL% is Vite's own index.html placeholder for the resolved `base` (VITE_BASE_PATH) -- a plain
+         <link href> isn't part of Vite's module graph, so it won't get rewritten the way <script src> is. -->
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f8fafc" />
     <meta name="color-scheme" content="light" />

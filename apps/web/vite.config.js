@@ -4,8 +4,13 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const apiTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:4000';
+  // deploy-gateway serves this app under /perf-agent (docs/DEPLOY.md) -- VITE_BASE_PATH is set to /perf-agent/
+  // at image build time (Dockerfile ARG), left unset for local dev so localhost:5173 is unaffected. Vite echoes
+  // the resolved value back as import.meta.env.BASE_URL (main.jsx's basename, shared/config.js's apiBaseUrl).
+  const basePath = process.env.VITE_BASE_PATH || env.VITE_BASE_PATH || '/';
 
   return {
+    base: basePath,
     plugins: [react()],
     server: {
       port: 5173,
