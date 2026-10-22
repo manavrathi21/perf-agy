@@ -29,8 +29,13 @@ services:
       dockerfile: apps/web/Dockerfile
     image: performance-agent-web:local
     container_name: pa-web
-    ports:
-      - "${WEB_PORT:-8080}:80"
+    # No host-published port -- TLS termination moved to deploy-gateway's own nginx, the one shared front door
+    # for every tool on this VM (one cert, reused across every port/tool). Plain HTTP internally; deploy-gateway
+    # reverse-proxies to this container by name on the shared "gateway" network. Visit it at the SAME port this
+    # used to publish itself (now https, see deploy-gateway's own nginx.conf/README).
+    networks:
+      - default   # still needs this to reach `api` by name, unchanged
+      - gateway
     depends_on:
       api:
         condition: service_healthy
@@ -39,3 +44,9 @@ services:
 volumes:
   api-storage:
   api-logs:
+
+networks:
+  default: {}
+  gateway:
+    name: gateway
+    external: true
